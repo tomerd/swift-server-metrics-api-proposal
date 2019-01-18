@@ -194,7 +194,7 @@ class MetricsTests: XCTestCase {
             counter.increment(value)
         }
         handlers.forEach { handler in
-            let counter = handler.counters[0] as! TestCounter
+            let counter = handler[counter: name] as! TestCounter
             XCTAssertEqual(counter.label, name, "expected label to match")
             XCTAssertEqual(counter.values.count, 1, "expected number of entries to match")
             XCTAssertEqual(counter.values[0].1, Int64(value), "expected value to match")
@@ -260,7 +260,8 @@ class MetricsTests: XCTestCase {
         XCTAssertNotEqual(counter5, counter, "expected caching to work with dimensions")
     }
 
-    func testLifecycle() throws {
+
+    func testReleasingMetrics() throws {
         // bootstrap with our test metrics
         let metrics = TestMetrics()
         Metrics.bootstrap(metrics)

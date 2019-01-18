@@ -2,12 +2,6 @@
 public protocol Metric: AnyObject {
 }
 
-// FIXME this would NOT be in the proposal, a library would identify its metrics however it wants.
-// This is needed to showcase how releasing generally works; NOT a full real implementation thereof and I'm not proposing adding this type.
-internal protocol NamedMetric: Metric {
-    var label: String { get }
-}
-
 public protocol Counter: Metric {
     func increment<DataType: BinaryInteger>(_ value: DataType)
 }
@@ -78,12 +72,6 @@ public protocol MetricsHandler {
     /// the entire lifetime of an application (e.g. global throughput metrics or similar).
     func release<M: Metric>(metric: M)
 }
-public extension MetricsHandler {
-    func release<M: Metric>(metric: M) {
-        // intentionally left empty, some metrics systems have no need to implement releasing
-        // e.g. if they immediately send metrics off to another storage then they are stateless and don't need to "shut down"
-    }
-}
 
 public extension MetricsHandler {
     @inlinable
@@ -131,14 +119,20 @@ public extension MetricsHandler {
     }
 }
 
+public extension MetricsHandler {
+    func release<M: Metric>(metric: M) {
+        // intentionally left empty, some metrics systems have no need to implement releasing
+        // e.g. if they immediately send metrics off to another storage then they are stateless and don't need to "shut down"
+    }
+}
+
 public enum Metrics {
     private static let lock = ReadWriteLock()
     private static var _handler: MetricsHandler = NOOPMetricsHandler.instance
 
     public static func bootstrap(_ handler: MetricsHandler) {
         self.lock.withWriterLockVoid {
-            // using a wrapper to avoid redundant and potentially expensive factory calls
-            self._handler = CachingMetricsHandler.wrap(handler) // TODO: I'd argue this is up to the handler implementation, some may not want this OR they can implement it better than a generic impl like we do here
+            self._handler = handler
         }
     }
 
@@ -159,85 +153,6 @@ public extension Metrics {
     @inlinable
     func makeTimer(label: String, dimensions: [(String, String)]) -> Timer {
         return Metrics.global.makeTimer(label: label, dimensions: dimensions)
-    }
-}
-
-private final class CachingMetricsHandler: MetricsHandler {
-    private let wrapped: MetricsHandler
-    private var counters = Cache<Counter>()
-    private var recorders = Cache<Recorder>()
-    private var timers = Cache<Timer>()
-
-    public static func wrap(_ handler: MetricsHandler) -> CachingMetricsHandler {
-        if let caching = handler as? CachingMetricsHandler {
-            return caching
-        } else {
-            return CachingMetricsHandler(handler)
-        }
-    }
-
-    private init(_ wrapped: MetricsHandler) {
-        self.wrapped = wrapped
-    }
-
-    public func makeCounter(label: String, dimensions: [(String, String)]) -> Counter {
-        return self.counters.getOrSet(label: label, dimensions: dimensions, maker: self.wrapped.makeCounter)
-    }
-
-    public func makeRecorder(label: String, dimensions: [(String, String)], aggregate: Bool) -> Recorder {
-        let maker = { (label: String, dimensions: [(String, String)]) -> Recorder in
-            self.wrapped.makeRecorder(label: label, dimensions: dimensions, aggregate: aggregate)
-        }
-        return self.recorders.getOrSet(label: label, dimensions: dimensions, maker: maker)
-    }
-
-    public func makeTimer(label: String, dimensions: [(String, String)]) -> Timer {
-        return self.timers.getOrSet(label: label, dimensions: dimensions, maker: self.wrapped.makeTimer)
-    }
-
-    func release<M: Metric>(metric: M) {
-        print("release \(metric)")
-        // in our caching implementation releasing means removing a metrics from the cache
-        // FIXME: just an example, I'd argue a metrics lib would have its own types and those would carry ID if they needed to release()
-        switch metric {
-        case let m as Counter & NamedMetric: self.counters.remove(label: m.label)
-        case let m as Recorder & NamedMetric: self.recorders.remove(label: m.label)
-        case let m as Timer & NamedMetric: self.timers.remove(label: m.label)
-        default: break // others, if they existed, are not cached
-        }
-    }
-
-
-    private class Cache<T> {
-        private var items = [String: T]()
-        // using a mutex is never ideal, we will need to explore optimization options
-        // once we see how real life workloads behaves
-        // for example, for short operations like hashmap lookup mutexes are worst than r/w locks in 99% reads, but better than them in mixed r/w mode
-        private let lock = Lock()
-
-        func getOrSet(label: String, dimensions: [(String, String)], maker: (String, [(String, String)]) -> T) -> T {
-            let key = self.fqn(label: label, dimensions: dimensions)
-            return self.lock.withLock {
-                if let item = items[key] {
-                    return item
-                } else {
-                    let item = maker(label, dimensions)
-                    items[key] = item
-                    return item
-                }
-            }
-        }
-
-        @discardableResult
-        func remove(label: String) -> Bool {
-            return self.lock.withLock {
-                return self.items.removeValue(forKey: label) != nil
-            }
-        }
-
-        private func fqn(label: String, dimensions: [(String, String)]) -> String {
-            return [[label], dimensions.compactMap { "\($0.0).\($0.1)" }].flatMap { $0 }.joined(separator: ".")
-        }
     }
 }
 

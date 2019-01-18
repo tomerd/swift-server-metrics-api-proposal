@@ -50,6 +50,25 @@ class ExampleMetricsLibrary: MetricsHandler {
         return item
     }
 
+    func release<M: Metric>(metric: M) {
+        switch metric {
+        case let counter as ExampleCounter:
+            guard let idx = counters.firstIndex(where: { $0.label == counter.label }) else { return }
+            counters.remove(at: idx)
+        case let recorder as ExampleRecorder:
+            guard let idx = recorders.firstIndex(where: { $0.label == recorder.label }) else { return }
+            recorders.remove(at: idx)
+        case let gauge as ExampleGauge:
+            guard let idx = recorders.firstIndex(where: { $0.label == gauge.label }) else { return }
+            gauges.remove(at: idx)
+        case let timer as ExampleTimer:
+            guard let idx = recorders.firstIndex(where: { $0.label == timer.label }) else { return }
+            timers.remove(at: idx)
+        default:
+            fatalError("Attempted to remove \(metric) which is not a supported metric type by \(ExampleMetricsLibrary.self)!")
+        }
+    }
+
     class Config {
         let recorder: RecorderConfig
         let timer: TimerConfig

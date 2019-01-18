@@ -3,33 +3,89 @@
 import Foundation
 
 internal class TestMetrics: MetricsHandler {
+
     private let lock = NSLock() // TODO: consider lock per cache?
-    var counters = [Counter]()
-    var recorders = [Recorder]()
-    var timers = [Timer]()
+    private var _counters = Cache<TestCounter>()
+    private var _recorders = Cache<TestRecorder>()
+    private var _timers = Cache<TestTimer>()
 
     public func makeCounter(label: String, dimensions: [(String, String)]) -> Counter {
-        return self.make(label: label, dimensions: dimensions, registry: &self.counters, maker: TestCounter.init)
+        return self._counters.getOrSet(label: label, dimensions: dimensions, maker: TestCounter.init)
     }
 
     public func makeRecorder(label: String, dimensions: [(String, String)], aggregate: Bool) -> Recorder {
-        let maker = { (label: String, dimensions: [(String, String)]) -> Recorder in
-            TestRecorder(label: label, dimensions: dimensions, aggregate: aggregate)
-        }
-        return self.make(label: label, dimensions: dimensions, registry: &self.recorders, maker: maker)
+        return self._recorders.getOrSet(label: label, dimensions: dimensions, maker: { l, dim in
+            TestRecorder(label: l, dimensions: dim, aggregate: aggregate)
+        })
     }
 
     public func makeTimer(label: String, dimensions: [(String, String)]) -> Timer {
-        return self.make(label: label, dimensions: dimensions, registry: &self.timers, maker: TestTimer.init)
+        return self._timers.getOrSet(label: label, dimensions: dimensions, maker: TestTimer.init)
     }
 
-    private func make<Item>(label: String, dimensions: [(String, String)], registry: inout [Item], maker: (String, [(String, String)]) -> Item) -> Item {
-        let item = maker(label, dimensions)
-        return self.lock.withLock {
-            registry.append(item)
-            return item
+    public func release<M: Metric>(metric: M) {
+        // in our caching implementation releasing means removing a metrics from the cache
+        switch metric {
+        case let m as TestCounter: self._counters.remove(label: m.label)
+        case let m as TestRecorder : self._recorders.remove(label: m.label)
+        case let m as TestTimer: self._timers.remove(label: m.label)
+        default: break // others, if they existed, are not cached
         }
     }
+    
+    subscript(counter label: String) -> Counter? {
+        return self._counters.get(label: label, dimensions: [])
+    }
+    subscript(recorder label: String) -> Recorder? {
+        return self._recorders.get(label: label, dimensions: [])
+    }
+    subscript(timer label: String) -> Timer? {
+        return self._timers.get(label: label, dimensions: [])
+    }
+
+    private class Cache<T> {
+        private var items = [String: T]()
+        // using a mutex is never ideal, we will need to explore optimization options
+        // once we see how real life workloads behaves
+        // for example, for short operations like hashmap lookup mutexes are worst than r/w locks in 99% reads, but better than them in mixed r/w mode
+        private let lock = Lock()
+
+
+        func get(label: String, dimensions: [(String, String)]) -> T? {
+            let key = self.fqn(label: label, dimensions: dimensions)
+            return self.lock.withLock {
+                return items[key]
+            }
+        }
+
+        func getOrSet(label: String, dimensions: [(String, String)], maker: (String, [(String, String)]) -> T) -> T {
+            let key = self.fqn(label: label, dimensions: dimensions)
+            return self.lock.withLock {
+                if let item = items[key] {
+                    return item
+                } else {
+                    // since we need to be able to handle unregister we wrap using the label
+                    // not the best way to deal with this, but we want to showcase how we could wrap/delegate
+                    let item = maker(label, dimensions)
+                    items[key] = item
+                    return item
+                }
+            }
+        }
+
+
+        @discardableResult
+        func remove(label: String) -> Bool {
+            return self.lock.withLock {
+                return self.items.removeValue(forKey: label) != nil
+            }
+        }
+
+        private func fqn(label: String, dimensions: [(String, String)]) -> String {
+            return [[label], dimensions.compactMap { "\($0.0).\($0.1)" }].flatMap { $0 }.joined(separator: ".")
+        }
+    }
+
 }
 
 internal class TestCounter: Counter, Equatable {
@@ -58,7 +114,7 @@ internal class TestCounter: Counter, Equatable {
     }
 }
 
-internal class TestRecorder: Recorder, Equatable, NamedMetric {
+internal class TestRecorder: Recorder, Equatable {
     let id: String
     let label: String
     let dimensions: [(String, String)]
