@@ -23,7 +23,7 @@ The proposed solution is to introduce the following types that encapsulate metri
 counter.increment(100)
 ```
 
-`Recorder`: A recorder collects observations within a time window (usually things like response sizes) and *can* provides aggregated information about the data sample, for example count, sum, min, max and various quantiles.
+`Recorder`: A recorder collects observations within a time window (usually things like response sizes) and *can* provide aggregated information about the data sample, for example count, sum, min, max and various quantiles.
 
 ```swift
 recorder.record(100)
