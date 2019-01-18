@@ -259,4 +259,30 @@ class MetricsTests: XCTestCase {
         XCTAssertEqual(counter5.dimensions.description, dimensions5.description, "expected dimensions to match")
         XCTAssertNotEqual(counter5, counter, "expected caching to work with dimensions")
     }
+
+    func testLifecycle() throws {
+        // bootstrap with our test metrics
+        let metrics = TestMetrics()
+        Metrics.bootstrap(metrics)
+        // run the test
+        let name = "gauge-\(NSUUID().uuidString)"
+        let value = Double.random(in: -1000 ... 1000)
+        Metrics.global.withGauge(label: name) { $0.record(value) }
+        let recorder = Metrics.global.makeGauge(label: name) as! TestRecorder
+        XCTAssertEqual(recorder.values.count, 1, "expected number of entries to match")
+        XCTAssertEqual(recorder.values[0].1, value, "expected value to match")
+
+        let identity = ObjectIdentifier(recorder)
+        Metrics.global.release(metric: recorder)
+
+        Metrics.global.withGauge(label: name) { $0.record(-value) }
+
+        let recorderAgain = Metrics.global.makeGauge(label: name) as! TestRecorder
+        XCTAssertEqual(recorderAgain.values.count, 1, "expected number of entries to match")
+        XCTAssertEqual(recorderAgain.values[0].1, -value, "expected value to match")
+
+        let identityAgain = ObjectIdentifier(recorderAgain)
+        XCTAssertNotEqual(identity, identityAgain, "since the cached metric was released, the created a new should have a different identity")
+    }
+
 }

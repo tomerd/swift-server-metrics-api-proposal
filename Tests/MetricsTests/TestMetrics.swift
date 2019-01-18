@@ -58,7 +58,7 @@ internal class TestCounter: Counter, Equatable {
     }
 }
 
-internal class TestRecorder: Recorder, Equatable {
+internal class TestRecorder: Recorder, Equatable, NamedMetric {
     let id: String
     let label: String
     let dimensions: [(String, String)]
