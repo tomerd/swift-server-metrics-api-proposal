@@ -60,7 +60,7 @@ How would you use  `counter`, `recorder`, `gauge` and `timer` in you application
     }
 ```
 
-To ensure performance, `Metrics.makeXxx` will returned a cached copy of the metric object so can be called on the hot path.
+To ensure performance, `Metrics.makeXxx` can return a cached copy of the metric object so can be called on the hot path.
 
 ## Detailed design
 
