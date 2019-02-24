@@ -18,7 +18,7 @@
 import Metrics
 
 class RandomLibrary {
-    let methodCallsCounter = Metrics.global.makeCounter(label: "RandomLibrary::TotalMethodCalls")
+    let methodCallsCounter = Counter(label: "RandomLibrary::TotalMethodCalls")
 
     func doSomething() {
         self.methodCallsCounter.increment()
@@ -26,7 +26,7 @@ class RandomLibrary {
 
     func doSomethingSlow(callback: @escaping () -> Void) {
         self.methodCallsCounter.increment()
-        Metrics.global.withTimer(label: "RandomLibrary::doSomethingSlow") { timer in
+        Timer.do(label: "RandomLibrary::doSomethingSlow") { timer in
             let start = Date()
             DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(Int.random(in: 5 ... 500))) {
                 timer.record(Date().timeIntervalSince(start))
