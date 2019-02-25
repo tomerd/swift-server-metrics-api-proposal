@@ -50,13 +50,6 @@ public extension Counter {
     }
 }
 
-public extension Counter {
-    @inlinable
-    public static func `do`(label: String, dimensions: [(String, String)] = [], body: (Counter) -> Void) {
-        body(Counter(label: label, dimensions: dimensions))
-    }
-}
-
 /// This is the Recorder protocol a metrics library implements
 public protocol RecorderHandler: AnyObject {
     func record<DataType: BinaryInteger>(_ value: DataType)
@@ -98,24 +91,10 @@ public extension Recorder {
     }
 }
 
-public extension Recorder {
-    @inlinable
-    public static func `do`(label: String, dimensions: [(String, String)] = [], aggregate: Bool = true, body: (Recorder) -> Void) {
-        body(Recorder(label: label, dimensions: dimensions, aggregate: aggregate))
-    }
-}
-
 // A Gauge is a convenience for non-aggregating Recorder
 public class Gauge: Recorder {
     public convenience init(label: String, dimensions: [(String, String)] = []) {
         self.init(label: label, dimensions: dimensions, aggregate: false)
-    }
-}
-
-public extension Gauge {
-    @inlinable
-    static func `do`(label: String, dimensions: [(String, String)] = [], body: (Gauge) -> Void) {
-        body(Gauge(label: label, dimensions: dimensions))
     }
 }
 
@@ -179,13 +158,6 @@ public extension Timer {
     public convenience init(label: String, dimensions: [(String, String)] = []) {
         let handler = MetricsSystem.factory.makeTimer(label: label, dimensions: dimensions)
         self.init(label: label, dimensions: dimensions, handler: handler)
-    }
-}
-
-public extension Timer {
-    @inlinable
-    public static func `do`(label: String, dimensions: [(String, String)] = [], body: (Timer) -> Void) {
-        body(Timer(label: label, dimensions: dimensions))
     }
 }
 

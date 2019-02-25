@@ -26,12 +26,11 @@ class RandomLibrary {
 
     func doSomethingSlow(callback: @escaping () -> Void) {
         self.methodCallsCounter.increment()
-        Timer.do(label: "RandomLibrary::doSomethingSlow") { timer in
-            let start = Date()
-            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(Int.random(in: 5 ... 500))) {
-                timer.record(Date().timeIntervalSince(start))
-                callback()
-            }
+        let timer = Timer(label: "RandomLibrary::doSomethingSlow")
+        let start = Date()
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(Int.random(in: 5 ... 500))) {
+            timer.record(Date().timeIntervalSince(start))
+            callback()
         }
     }
 }
