@@ -17,7 +17,7 @@
 
 import Metrics
 
-class SimpleMetricsLibrary: MetricsHandler {
+class SimpleMetricsLibrary: MetricsFactory {
     init() {}
 
     func makeCounter(label: String, dimensions: [(String, String)]) -> CounterHandler {

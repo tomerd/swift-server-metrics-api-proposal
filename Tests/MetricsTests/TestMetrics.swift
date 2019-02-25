@@ -16,7 +16,7 @@
 @testable import class CoreMetrics.Timer
 import Foundation
 
-internal class TestMetrics: MetricsHandler {
+internal class TestMetrics: MetricsFactory {
     private let lock = NSLock() // TODO: consider lock per cache?
     var counters = [String: CounterHandler]()
     var recorders = [String: RecorderHandler]()

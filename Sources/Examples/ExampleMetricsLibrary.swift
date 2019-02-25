@@ -17,7 +17,7 @@
 
 import Metrics
 
-class ExampleMetricsLibrary: MetricsHandler {
+class ExampleMetricsLibrary: MetricsFactory {
     private let config: Config
     private let lock = NSLock()
     var counters = [ExampleCounter]()

@@ -2,6 +2,7 @@
 @_exported import class CoreMetrics.Timer
 @_exported import Foundation
 
+// Convenience for measuring duration of a closure
 public extension Timer {
     @inlinable
     public static func measure<T>(label: String, dimensions: [(String, String)] = [], body: @escaping () throws -> T) rethrows -> T {
@@ -14,6 +15,7 @@ public extension Timer {
     }
 }
 
+// Convenience for using Foundation and Dispatch
 public extension Timer {
     @inlinable
     public func record(_ duration: TimeInterval) {

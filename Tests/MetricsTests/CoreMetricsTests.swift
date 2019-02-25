@@ -205,16 +205,16 @@ class MetricsTests: XCTestCase {
 
     func testMUX() throws {
         // bootstrap with our test metrics
-        let handlers = [TestMetrics(), TestMetrics(), TestMetrics()]
-        MetricsSystem.bootstrapInternal(MultiplexMetricsHandler(handlers: handlers))
+        let factories = [TestMetrics(), TestMetrics(), TestMetrics()]
+        MetricsSystem.bootstrapInternal(MultiplexMetricsHandler(factories: factories))
         // run the test
         let name = NSUUID().uuidString
         let value = Int.random(in: Int.min ... Int.max)
         Counter.do(label: name) { counter in
             counter.increment(value)
         }
-        handlers.forEach { handler in
-            let counter = handler.counters.first?.1 as! TestCounter
+        factories.forEach { factory in
+            let counter = factory.counters.first?.1 as! TestCounter
             XCTAssertEqual(counter.label, name, "expected label to match")
             XCTAssertEqual(counter.values.count, 1, "expected number of entries to match")
             XCTAssertEqual(counter.values[0].1, Int64(value), "expected value to match")

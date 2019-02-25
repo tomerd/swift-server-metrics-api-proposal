@@ -12,10 +12,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+/// This is the Counter protocol a metrics library implements
 public protocol CounterHandler: AnyObject {
     func increment<DataType: BinaryInteger>(_ value: DataType)
 }
 
+// This is the user facing Counter API. It must have reference semantics, and its behviour depend ons the `CounterHandler` implementation
 public class Counter: CounterHandler {
     @usableFromInline
     var handler: CounterHandler
@@ -43,7 +45,7 @@ public class Counter: CounterHandler {
 
 public extension Counter {
     public convenience init(label: String, dimensions: [(String, String)] = []) {
-        let handler = MetricsSystem.handler.makeCounter(label: label, dimensions: dimensions)
+        let handler = MetricsSystem.factory.makeCounter(label: label, dimensions: dimensions)
         self.init(label: label, dimensions: dimensions, handler: handler)
     }
 }
@@ -55,11 +57,13 @@ public extension Counter {
     }
 }
 
+/// This is the Recorder protocol a metrics library implements
 public protocol RecorderHandler: AnyObject {
     func record<DataType: BinaryInteger>(_ value: DataType)
     func record<DataType: BinaryFloatingPoint>(_ value: DataType)
 }
 
+// This is the user facing Recorder API. It must have reference semantics, and its behviour depend ons the `RecorderHandler` implementation
 public class Recorder: RecorderHandler {
     @usableFromInline
     var handler: RecorderHandler
@@ -89,7 +93,7 @@ public class Recorder: RecorderHandler {
 
 public extension Recorder {
     public convenience init(label: String, dimensions: [(String, String)] = [], aggregate: Bool = true) {
-        let handler = MetricsSystem.handler.makeRecorder(label: label, dimensions: dimensions, aggregate: aggregate)
+        let handler = MetricsSystem.factory.makeRecorder(label: label, dimensions: dimensions, aggregate: aggregate)
         self.init(label: label, dimensions: dimensions, aggregate: aggregate, handler: handler)
     }
 }
@@ -101,6 +105,7 @@ public extension Recorder {
     }
 }
 
+// A Gauge is a convenience for non-aggregating Recorder
 public class Gauge: Recorder {
     public convenience init(label: String, dimensions: [(String, String)] = []) {
         self.init(label: label, dimensions: dimensions, aggregate: false)
@@ -114,10 +119,12 @@ public extension Gauge {
     }
 }
 
+// This is the Timer protocol a metrics library implements
 public protocol TimerHandler: AnyObject {
     func recordNanoseconds(_ duration: Int64)
 }
 
+// This is the user facing Timer API. It must have reference semantics, and its behviour depend ons the `RecorderHandler` implementation
 public class Timer: TimerHandler {
     @usableFromInline
     var handler: TimerHandler
@@ -170,7 +177,7 @@ public class Timer: TimerHandler {
 
 public extension Timer {
     public convenience init(label: String, dimensions: [(String, String)] = []) {
-        let handler = MetricsSystem.handler.makeTimer(label: label, dimensions: dimensions)
+        let handler = MetricsSystem.factory.makeTimer(label: label, dimensions: dimensions)
         self.init(label: label, dimensions: dimensions, handler: handler)
     }
 }
@@ -182,62 +189,62 @@ public extension Timer {
     }
 }
 
-public protocol MetricsHandler {
+public protocol MetricsFactory {
     func makeCounter(label: String, dimensions: [(String, String)]) -> CounterHandler
     func makeRecorder(label: String, dimensions: [(String, String)], aggregate: Bool) -> RecorderHandler
     func makeTimer(label: String, dimensions: [(String, String)]) -> TimerHandler
 }
 
-// This is the metrics system itself, it's mostly used set the type of the `MetricsHandler` implementation.
+// This is the metrics system itself, it's mostly used set the type of the `MetricsFactory` implementation.
 public enum MetricsSystem {
     fileprivate static let lock = ReadWriteLock()
-    fileprivate static var _handler: MetricsHandler = NOOPMetricsHandler.instance
+    fileprivate static var _factory: MetricsFactory = NOOPMetricsHandler.instance
     fileprivate static var initialized = false
 
     // Configures which `LogHandler` to use in the application.
-    public static func bootstrap(_ handler: MetricsHandler) {
+    public static func bootstrap(_ factory: MetricsFactory) {
         self.lock.withWriterLock {
-            precondition(!self.initialized, "metrics system can only be initialized once per process. currently used factory: \(self._handler)")
-            self._handler = handler
+            precondition(!self.initialized, "metrics system can only be initialized once per process. currently used factory: \(self.factory)")
+            self._factory = factory
             self.initialized = true
         }
     }
 
     // for our testing we want to allow multiple bootstraping
-    internal static func bootstrapInternal(_ handler: MetricsHandler) {
+    internal static func bootstrapInternal(_ factory: MetricsFactory) {
         self.lock.withWriterLock {
-            self._handler = handler
+            self._factory = factory
         }
     }
 
-    internal static var handler: MetricsHandler {
-        return self.lock.withReaderLock { self._handler }
+    internal static var factory: MetricsFactory {
+        return self.lock.withReaderLock { self._factory }
     }
 }
 
 /// Ships with the metrics module, used to multiplex to multiple metrics handlers
-public final class MultiplexMetricsHandler: MetricsHandler {
-    private let handlers: [MetricsHandler]
-    public init(handlers: [MetricsHandler]) {
-        self.handlers = handlers
+public final class MultiplexMetricsHandler: MetricsFactory {
+    private let factories: [MetricsFactory]
+    public init(factories: [MetricsFactory]) {
+        self.factories = factories
     }
 
     public func makeCounter(label: String, dimensions: [(String, String)]) -> CounterHandler {
-        return MuxCounter(handlers: self.handlers, label: label, dimensions: dimensions)
+        return MuxCounter(factories: self.factories, label: label, dimensions: dimensions)
     }
 
     public func makeRecorder(label: String, dimensions: [(String, String)], aggregate: Bool) -> RecorderHandler {
-        return MuxRecorder(handlers: self.handlers, label: label, dimensions: dimensions, aggregate: aggregate)
+        return MuxRecorder(factories: self.factories, label: label, dimensions: dimensions, aggregate: aggregate)
     }
 
     public func makeTimer(label: String, dimensions: [(String, String)]) -> TimerHandler {
-        return MuxTimer(handlers: self.handlers, label: label, dimensions: dimensions)
+        return MuxTimer(factories: self.factories, label: label, dimensions: dimensions)
     }
 
     private class MuxCounter: CounterHandler {
         let counters: [CounterHandler]
-        public init(handlers: [MetricsHandler], label: String, dimensions: [(String, String)]) {
-            self.counters = handlers.map { $0.makeCounter(label: label, dimensions: dimensions) }
+        public init(factories: [MetricsFactory], label: String, dimensions: [(String, String)]) {
+            self.counters = factories.map { $0.makeCounter(label: label, dimensions: dimensions) }
         }
 
         func increment<DataType: BinaryInteger>(_ value: DataType) {
@@ -247,8 +254,8 @@ public final class MultiplexMetricsHandler: MetricsHandler {
 
     private class MuxRecorder: RecorderHandler {
         let recorders: [RecorderHandler]
-        public init(handlers: [MetricsHandler], label: String, dimensions: [(String, String)], aggregate: Bool) {
-            self.recorders = handlers.map { $0.makeRecorder(label: label, dimensions: dimensions, aggregate: aggregate) }
+        public init(factories: [MetricsFactory], label: String, dimensions: [(String, String)], aggregate: Bool) {
+            self.recorders = factories.map { $0.makeRecorder(label: label, dimensions: dimensions, aggregate: aggregate) }
         }
 
         func record<DataType: BinaryInteger>(_ value: DataType) {
@@ -262,8 +269,8 @@ public final class MultiplexMetricsHandler: MetricsHandler {
 
     private class MuxTimer: TimerHandler {
         let timers: [TimerHandler]
-        public init(handlers: [MetricsHandler], label: String, dimensions: [(String, String)]) {
-            self.timers = handlers.map { $0.makeTimer(label: label, dimensions: dimensions) }
+        public init(factories: [MetricsFactory], label: String, dimensions: [(String, String)]) {
+            self.timers = factories.map { $0.makeTimer(label: label, dimensions: dimensions) }
         }
 
         func recordNanoseconds(_ duration: Int64) {
@@ -272,7 +279,7 @@ public final class MultiplexMetricsHandler: MetricsHandler {
     }
 }
 
-public final class NOOPMetricsHandler: MetricsHandler, CounterHandler, RecorderHandler, TimerHandler {
+public final class NOOPMetricsHandler: MetricsFactory, CounterHandler, RecorderHandler, TimerHandler {
     public static let instance = NOOPMetricsHandler()
 
     private init() {}
