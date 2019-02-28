@@ -55,7 +55,7 @@ class SimpleMetricsLibrary: MetricsFactory {
         }
 
         func record<DataType: BinaryFloatingPoint>(_ value: DataType) {
-            // this may loose percision, but good enough as an example
+            // this may loose precision, but good enough as an example
             let v = Double(value)
             // TODO: sliding window
             lock.withLock {
@@ -98,7 +98,7 @@ class SimpleMetricsLibrary: MetricsFactory {
         }
 
         func record<DataType: BinaryFloatingPoint>(_ value: DataType) {
-            // this may loose percision but good enough as an example
+            // this may loose precision but good enough as an example
             self.lock.withLock { _value = Double(value) }
         }
     }

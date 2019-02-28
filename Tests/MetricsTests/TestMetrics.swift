@@ -38,10 +38,27 @@ internal class TestMetrics: MetricsFactory {
     }
 
     private func make<Item>(label: String, dimensions: [(String, String)], registry: inout [String: Item], maker: (String, [(String, String)]) -> Item) -> Item {
-        let item = maker(label, dimensions)
         return self.lock.withLock {
-            registry[label] = item
-            return item
+            if let item = registry[label] {
+                return item
+            } else {
+                let item = maker(label, dimensions)
+                registry[label] = item // FIXME: This would cause to override with a zeroed out metric... is this really what we want?
+                return item
+            }
+        }
+    }
+
+    public func release<M: MetricHandler>(metric: M) {
+        switch metric {
+        case let counter as TestCounter:
+            self.counters.removeValue(forKey: counter.label)
+        case let recorder as TestRecorder:
+            self.recorders.removeValue(forKey: recorder.label)
+        case let timer as TestTimer:
+            self.timers.removeValue(forKey: timer.label)
+        default:
+            return // nothing to do, not a metric that we created/stored
         }
     }
 }
@@ -94,7 +111,7 @@ internal class TestRecorder: RecorderHandler, Equatable {
 
     func record<DataType: BinaryFloatingPoint>(_ value: DataType) {
         self.lock.withLock {
-            // this may loose percision but good enough as an example
+            // this may loose precision but good enough as an example
             values.append((Date(), Double(value)))
         }
         print("recoding \(value) in \(self.label)")

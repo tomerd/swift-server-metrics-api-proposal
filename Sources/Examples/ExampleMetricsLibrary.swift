@@ -67,6 +67,40 @@ class ExampleMetricsLibrary: MetricsFactory {
         return item
     }
 
+
+    func release<M: MetricHandler>(metric: M) {
+        // we only release metrics that we ourselves created and keep in our caches:
+        switch metric {
+        case let counter as ExampleCounter:
+            lock.withLock {
+                if let idx = self.counters.firstIndex(where: { m in m.label == counter.label }) {
+                    self.counters.remove(at: idx)
+                }
+            }
+        case let gauge as ExampleGauge:
+            lock.withLock {
+                if let idx = self.gauges.firstIndex(where: { m in m.label == gauge.label }) {
+                    self.gauges.remove(at: idx)
+                }
+            }
+        case let recorder as ExampleRecorder:
+            lock.withLock {
+                if let idx = self.recorders.firstIndex(where: { m in m.label == recorder.label }) {
+                    self.recorders.remove(at: idx)
+                }
+            }
+        case let timer as ExampleTimer:
+            lock.withLock {
+                if let idx = self.timers.firstIndex(where: { m in m.label == timer.label }) {
+                    self.timers.remove(at: idx)
+                }
+            }
+        default:
+            // we can't release not "out" metrics; this could be considered a bug and fatal error here perhaps
+            return
+        }
+    }
+
     class Config {
         let recorder: RecorderConfig
         let timer: TimerConfig
@@ -99,12 +133,21 @@ class ExampleMetricsLibrary: MetricsFactory {
     }
 }
 
-class ExampleCounter: CounterHandler, CustomStringConvertible {
+/// In this `ExampleMetricsLibrary` we decided to have a shared type for our metrics as we will identify them by the label alone.
+/// Other libraries my implement identification differently; This example only goes to show how libraries can use manage identity (in the simplest case).
+class LabelledExampleHandler {
     let label: String
+
+    init(label: String) {
+        self.label = label
+    }
+}
+
+class ExampleCounter: LabelledExampleHandler, CounterHandler, CustomStringConvertible {
     let dimensions: [(String, String)]
     init(label: String, dimensions: [(String, String)]) {
-        self.label = label
         self.dimensions = dimensions
+        super.init(label: label)
     }
 
     let lock = NSLock()
@@ -120,14 +163,13 @@ class ExampleCounter: CounterHandler, CustomStringConvertible {
     }
 }
 
-class ExampleRecorder: RecorderHandler, CustomStringConvertible {
-    let label: String
+class ExampleRecorder: LabelledExampleHandler, RecorderHandler, CustomStringConvertible {
     let dimensions: [(String, String)]
     let options: [AggregationOption]
     init(label: String, dimensions: [(String, String)], options: [AggregationOption]) {
-        self.label = label
         self.dimensions = dimensions
         self.options = options
+        super.init(label: label)
     }
 
     private let lock = NSLock()
@@ -137,7 +179,7 @@ class ExampleRecorder: RecorderHandler, CustomStringConvertible {
     }
 
     func record<DataType: BinaryFloatingPoint>(_ value: DataType) {
-        // this may loose percision, but good enough as an example
+        // this may loose precision, but good enough as an example
         let v = Double(value)
         // TODO: sliding window
         lock.withLock {
@@ -226,12 +268,11 @@ class ExampleRecorder: RecorderHandler, CustomStringConvertible {
     }
 }
 
-class ExampleGauge: RecorderHandler, CustomStringConvertible {
-    let label: String
+class ExampleGauge: LabelledExampleHandler, RecorderHandler, CustomStringConvertible {
     let dimensions: [(String, String)]
     init(label: String, dimensions: [(String, String)]) {
-        self.label = label
         self.dimensions = dimensions
+        super.init(label: label)
     }
 
     let lock = NSLock()
@@ -241,7 +282,7 @@ class ExampleGauge: RecorderHandler, CustomStringConvertible {
     }
 
     func record<DataType: BinaryFloatingPoint>(_ value: DataType) {
-        // this may loose percision but good enough as an example
+        // this may loose precision but good enough as an example
         self.lock.withLock { _value = Double(value) }
     }
 

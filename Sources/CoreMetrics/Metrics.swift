@@ -12,12 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+public protocol MetricHandler: AnyObject {
+}
+
 /// This is the Counter protocol a metrics library implements. It must have reference semantics
-public protocol CounterHandler: AnyObject {
+public protocol CounterHandler: MetricHandler {
     func increment<DataType: BinaryInteger>(_ value: DataType)
 }
 
-// This is the user facing Counter API. Its behavior depends on the `CounterHandler` implementation
+// This is the user facing Counter API. It must have reference semantics, and its behavior depend ons the `CounterHandler` implementation
 public class Counter: CounterHandler {
     @usableFromInline
     var handler: CounterHandler
@@ -51,12 +54,12 @@ public extension Counter {
 }
 
 /// This is the Recorder protocol a metrics library implements. It must have reference semantics
-public protocol RecorderHandler: AnyObject {
+public protocol RecorderHandler: MetricHandler {
     func record<DataType: BinaryInteger>(_ value: DataType)
     func record<DataType: BinaryFloatingPoint>(_ value: DataType)
 }
 
-// This is the user facing Recorder API. Its behavior depends on the `RecorderHandler` implementation
+// This is the user facing Recorder API. It must have reference semantics, and its behavior depend ons the `RecorderHandler` implementation
 public class Recorder: RecorderHandler {
     @usableFromInline
     var handler: RecorderHandler
@@ -99,18 +102,18 @@ public class Gauge: Recorder {
 }
 
 // This is the Timer protocol a metrics library implements. It must have reference semantics
-public protocol TimerHandler: AnyObject {
+public protocol TimerHandler: MetricHandler {
     func recordNanoseconds(_ duration: Int64)
 }
 
-// This is the user facing Timer API. Its behavior depends on the `RecorderHandler` implementation
+// This is the user facing Timer API. It must have reference semantics, and its behavior depend ons the `RecorderHandler` implementation
 public class Timer: TimerHandler {
     @usableFromInline
     var handler: TimerHandler
     public let label: String
     public let dimensions: [(String, String)]
 
-    // this method is public to provide an escape hatch for situations one must use a custom factory instead of the gloabl one
+    // this method is public to provide an escape hatch for situations one must use a custom factory instead of the global one
     // we do not expect this API to be used in normal circumstances, so if you find yourself using it make sure its for a good reason
     public init(label: String, dimensions: [(String, String)], handler: TimerHandler) {
         self.label = label
@@ -165,6 +168,39 @@ public protocol MetricsFactory {
     func makeCounter(label: String, dimensions: [(String, String)]) -> CounterHandler
     func makeRecorder(label: String, dimensions: [(String, String)], aggregate: Bool) -> RecorderHandler
     func makeTimer(label: String, dimensions: [(String, String)]) -> TimerHandler
+
+    /// Signals the `MetricsFactory` that the passed in `MetricHandler` will no longer be updated.
+    /// Implementing this functionality is _optional_, and depends on the semantics of the concrete `MetricsFactory`.
+    ///
+    /// In response to this call, the factory _may_ release resources associated with this metric,
+    /// e.g. in case the metric contains references to "heavy" resources, such as file handles, connections,
+    /// or large in-memory data structures.
+    ///
+    /// **Intended usage:**
+    ///
+    /// Metrics library implementations are _not_ required to act on this signal immediately (or at all).
+    /// However, the presence of this API allows middle-ware libraries wanting to emit metrics for resources with
+    /// well-defined life-cycles to behave pro-actively, and signal when a given metric is known to not be used anymore,
+    /// which can make an positive impact with regards to resource utilization in case of metrics libraries which keep
+    /// references to "heavy" resources.
+    ///
+    /// It is expected that some metrics libraries, may choose to omit implementing this functionality.
+    /// One such example may be a library which directly emits recorded values to some underlying shared storage engine,
+    /// which means that the `MetricHandler` objects themselves are light-weight by nature, and thus no lifecycle
+    /// management and releasing of such metrics handlers is necessary.
+    ///
+    /// **Concurrency:**
+    ///
+    /// This function MAY be invoked concurrently, and implementations should take care to use appropriate
+    /// synchronization mechanisms where necessary.
+    func release<M: MetricHandler>(metric: M)
+}
+
+extension MetricsFactory {
+    public func release<M: MetricHandler>(metric: M) {
+        // no-op by default.
+        // Libraries which do maintain metric lifecycle should implement this method.
+    }
 }
 
 // This is the metrics system itself, it's mostly used set the type of the `MetricsFactory` implementation
@@ -186,6 +222,17 @@ public enum MetricsSystem {
     internal static func bootstrapInternal(_ factory: MetricsFactory) {
         self.lock.withWriterLock {
             self._factory = factory
+        }
+    }
+
+    /// Signals the underlying `MetricsFactory` that the passed in `MetricHandler` will no longer be updated.
+    /// Implementing this functionality by metrics factories is _optional_, and depends on the underlying semantics of the factory.
+    ///
+    /// - Parameter metric: metric object to be released by underlying metrics factory
+    /// - SeeAlso: `MetricsFactory.release` for more details.
+    public static func release<M: MetricHandler>(metric: M) {
+        self.lock.withReaderLockVoid {
+            self._factory.release(metric: metric)
         }
     }
 
@@ -211,6 +258,13 @@ public final class MultiplexMetricsHandler: MetricsFactory {
 
     public func makeTimer(label: String, dimensions: [(String, String)]) -> TimerHandler {
         return MuxTimer(factories: self.factories, label: label, dimensions: dimensions)
+    }
+
+
+    public func release<M: MetricHandler>(metric: M) {
+        self.factories.forEach { factory in
+            factory.release(metric: metric)
+        }
     }
 
     private class MuxCounter: CounterHandler {

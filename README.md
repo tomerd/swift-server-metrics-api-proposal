@@ -62,7 +62,7 @@ How would you use  `counter`, `recorder`, `gauge` and `timer` in you application
 
 ## Detailed design
 
-### Implementing a metrics backend (eg prometheus client library)
+### Implementing a metrics backend (e.g. prometheus client library)
 
 As seen above, the constructors `Counter`, `Timer`, `Recorder` and `Gauge` provides a metric object. This raises the question of what metrics backend I will actually get when calling these constructors? The answer is that it's configurable _per application_. The application sets up the metrics backend it wishes the whole application to use. Libraries should never change the metrics implementation as that is something owned by the application. Configuring the metrics backend is straightforward:
 
@@ -83,6 +83,7 @@ public protocol MetricsFactory {
 ```
 
 The `MetricsFactory` is responsible for instantiating the concrete metrics classes that capture the metrics and perform aggregation and calculation of various quantiles as needed.
+All metrics handlers share a common protocol, the `MetricHandler`, which is used to enable APIs accepting any metric, e.g. for purpose of releasing them.
 
 **Counter**
 
@@ -205,6 +206,39 @@ class SimpleMetricsLibrary: MetricsFactory {
     }
 }
 ```
+
+### Managing metric lifecycle
+
+Since the Metrics API needs to accomodate various types of library implementations, care has been given to enable
+libraries which require explicitly managing the lifecycle of their metrics receive signals about a metric no longer being 
+"in use" by other libraries.
+
+Not all libraries will have a need for this lifecycle management, e.g. if `MetricHandler` implementations are stateless
+forwarders to some backend system, it is likely that managing lifecycle of individual metrics objects may not be required.
+However, in case of libraries which keep any created `MetricHandler` in some internal registry (e.g. in the form of a 
+dictionary `[MetricId: MetricHandler]`), it may be necessary to invoke `MetricsSystem.release()` for known not-used-anymore 
+metrics in order to facilitate eagerly discarding this state from the registry.
+
+The eager releasing of metrics plays an even more important role for `MetricsHandlers` which rely on "heavy" resources
+such as: file handles, network connections or large in-memory data structures (e.g. high definition resolution histograms,
+which can take tens, up to hundreds of KiB).
+
+#### Implications for middle ware libraries
+
+Since the goal of this API is to allow various libraries (e.g. web frameworks, database drivers etc) to emit metrics 
+_without being aware of the bootstraped metrics library_, these libraries should make sure to `MetricsSystem.release()`
+any metrics objects that they have created the moment they know a given metric will not be emitted anymore. 
+Examples of such situation include (but are not limited to): any form of metric that is created "per identity". 
+An identity in this sense may be an "request id", "transaction id", or a "connection" -- since all of those have a specific 
+lifetime the library knows about, and can guarantee that once its lifetime is exceeded, no more metrics will be emitted for 
+the specific identifier.
+
+Library implementations shall therefore release metrics whenever they see it fit, assuming that the underlying metrics 
+library will be able to make use of this information to release resources eagerly. In case of simple metrics libraries,
+which do not maintain any lifecycle information for their metrics, such release calls will be no-ops, however from the 
+perspective of the "middle-ware" library there is no way to know this -- since the entire purpose of the Metrics API is 
+to hide those implementation details from them.
+ 
 
 ## State
 

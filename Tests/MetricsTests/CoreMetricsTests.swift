@@ -229,4 +229,36 @@ class MetricsTests: XCTestCase {
         let counter2 = Counter(label: "foo", dimensions: [], handler: CustomHandler())
         XCTAssertTrue(counter2.handler is CustomHandler, "expected custom log handler")
     }
+
+    func testReleasingMetrics() throws {
+        // bootstrap with our test metrics
+        let metrics = TestMetrics()
+        MetricsSystem.bootstrapInternal(metrics)
+        // run the test
+        let name = "gauge-\(NSUUID().uuidString)"
+        let value = Double.random(in: -1000 ... 1000)
+
+        let gauge = Gauge(label: name)
+        gauge.record(value)
+
+        print("g = \((gauge.handler as! TestRecorder).values)")
+
+        let recorder = Gauge(label: name).handler as! TestRecorder
+        print("g = \(recorder.values)")
+        XCTAssertEqual(recorder.values.count, 1, "expected number of entries to match")
+        XCTAssertEqual(recorder.values.first!.1, value, "expected value to match")
+
+        let identity = ObjectIdentifier(recorder)
+        MetricsSystem.release(metric: recorder)
+
+        let gaugeAgain  = Gauge(label: name)
+        gaugeAgain.record(-value)
+
+        let recorderAgain = Gauge(label: name).handler as! TestRecorder
+        XCTAssertEqual(recorderAgain.values.count, 1, "expected number of entries to match")
+        XCTAssertEqual(recorderAgain.values.first!.1, -value, "expected value to match")
+
+        let identityAgain = ObjectIdentifier(recorderAgain)
+        XCTAssertNotEqual(identity, identityAgain, "since the cached metric was released, the created a new should have a different identity")
+    }
 }
